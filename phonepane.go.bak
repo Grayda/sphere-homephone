@@ -1,0 +1,119 @@
+package main
+
+import (
+	"fmt"
+	"image"
+	"time"
+
+	"github.com/Grayda/go-phone"
+	"github.com/ninjasphere/gestic-tools/go-gestic-sdk"
+	"github.com/ninjasphere/go-ninja/api"
+	"github.com/ninjasphere/go-ninja/model"
+	"github.com/ninjasphere/sphere-go-led-controller/util"
+)
+
+type PhonePane struct {
+	siteModel        *ninja.ServiceClient
+	site             *model.Site
+	lastTap          time.Time
+	visibleTimeout   *time.Timer
+	keepAwake        bool
+	visible          bool
+	introTimeout     *time.Timer
+	intro            bool
+	keepAwakeTimeout *time.Timer
+	lastDoubleTap    time.Time
+}
+
+var tapInterval = time.Millisecond * 500
+var introDuration = time.Second * 2
+var visibleTimeout = time.Second * 2
+var phoneRinging = false // Is our phone ringing?
+var phoneNumber = "P"
+var ringingIcon = util.LoadImage(util.ResolveImagePath("PhoneIcon.gif"))
+var missedIcon = util.LoadImage(util.ResolveImagePath("PhoneIcon-Missed.gif"))
+var paneLocked = true
+var paneKeepAwake = true
+var paneEnabled = true
+
+//Create and initialize a PhonePane struct:
+func NewPhonePane(conn *ninja.Connection) *PhonePane {
+	pane := &PhonePane{
+		siteModel: conn.GetServiceClient("$home/services/SiteModel"),
+		lastTap:   time.Now(),
+	}
+	pane.visibleTimeout = time.AfterFunc(0, func() {
+		pane.keepAwake = true
+		pane.visible = true
+	})
+	pane.introTimeout = time.AfterFunc(0, func() {
+		pane.intro = false
+	})
+	pane.keepAwakeTimeout = time.AfterFunc(0, func() {
+		pane.keepAwake = true
+	})
+	go pane.Start()
+	return pane
+}
+
+//lat and lon are 0 if not given as parameters when calling the app:
+func (p *PhonePane) Start() {
+	//var g *gestic.GestureMessage
+	//p.Gesture(g.Tap)
+}
+
+//Control sphere gestures:
+func (p *PhonePane) Gesture(gesture *gestic.GestureMessage) {
+	if gesture.Tap.Active() && time.Since(p.lastTap) > tapInterval {
+		fmt.Println("tap!")
+		p.lastTap = time.Now()
+		paneLocked = false
+		paneEnabled = false
+		paneKeepAwake = false
+	}
+	if gesture.DoubleTap.Active() && time.Since(p.lastDoubleTap) > tapInterval {
+		p.lastDoubleTap = time.Now()
+
+	}
+	if gesture.AirWheel.Active {
+		fmt.Println("Airwheel detected")
+	}
+}
+
+func (p *PhonePane) KeepAwake() bool {
+	// TODO: Screen timeouts... 10min on press etc...
+	return paneKeepAwake
+	//return true
+}
+
+func (p *PhonePane) Locked() bool {
+	return paneLocked
+}
+
+func (p *PhonePane) GetProductID(name string) (string, error) {
+	return "", fmt.Errorf("Missing product ID: %s", name)
+}
+
+func (p PhonePane) Render() (*image.RGBA, error) {
+
+	p.visibleTimeout.Reset(visibleTimeout)
+	//If not visible, show intro:
+	if !p.visible {
+		p.visible = true
+		p.intro = true
+		p.introTimeout.Reset(introDuration)
+	}
+
+	if phone.Ringing == false {
+		return ringingIcon.GetNextFrame(), nil
+	}
+	return missedIcon.GetNextFrame(), nil
+}
+
+func (p *PhonePane) IsEnabled() bool {
+	return paneEnabled
+}
+
+func (p *PhonePane) IsDirty() bool {
+	return true
+}
